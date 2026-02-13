@@ -6,19 +6,23 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/evandrorm89/httpserver/internal/auth"
+	"github.com/evandrorm89/httpserver/internal/database"
 	"github.com/google/uuid"
 )
 
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
+	ID             uuid.UUID `json:"id"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	Email          string    `json:"email"`
+	HashedPassword string    `json:"-"`
 }
 
 func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	type response struct {
@@ -34,7 +38,22 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := cfg.dbQueries.CreateUser(r.Context(), params.Email)
+	hashedPassword, err := auth.HashPassword(params.Password)
+	if err != nil {
+		http.Error(w, "Could not hash password", http.StatusInternalServerError)
+	}
+
+	type createUserParams struct {
+		Email          string
+		HashedPassword string
+	}
+
+	args := database.CreateUserParams{
+		Email:          params.Email,
+		HashedPassword: hashedPassword,
+	}
+
+	user, err := cfg.dbQueries.CreateUser(r.Context(), args)
 	if err != nil {
 		log.Printf("Error creating user: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
