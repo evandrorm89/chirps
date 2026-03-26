@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/evandrorm89/httpserver/internal/auth"
 	"github.com/evandrorm89/httpserver/internal/database"
 	"github.com/google/uuid"
 )
@@ -20,8 +21,7 @@ type Chirp struct {
 
 func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Body   string `json:"body"`
-		UserID string `json:"user_id"`
+		Body string `json:"body"`
 	}
 
 	type response struct {
@@ -37,10 +37,17 @@ func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	u, err := uuid.Parse(params.UserID)
+	token, err := auth.GetBearerToken(r.Header)
 	if err != nil {
-		log.Printf("Error parsing user ID: %v", err)
-		w.WriteHeader(http.StatusBadRequest)
+		log.Printf("Error getting bearer token: %v", err)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	u, err := auth.ValidateJWT(token, cfg.jwtSecret)
+	if err != nil {
+		log.Printf("Error validating JWT: %v", err)
+		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 

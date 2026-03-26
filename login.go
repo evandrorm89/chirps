@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/evandrorm89/httpserver/internal/auth"
+	"github.com/evandrorm89/httpserver/internal/database"
 )
 
 func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -16,6 +18,8 @@ func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	type response struct {
 		User
+		Token        string `json:"token"`
+		RefreshToken string `json:"refresh_token"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -26,10 +30,18 @@ func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	expiresInSeconds := 3600
 
 	user, err := cfg.dbQueries.GetUserByEmail(r.Context(), params.Email)
 	if err != nil {
 		log.Printf("Error fetching user: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, time.Second*time.Duration(expiresInSeconds))
+	if err != nil {
+		log.Printf("Error creating JWT: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -47,6 +59,16 @@ func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	refreshToken := auth.MakeRefreshToken()
+
+	refreshTokenParams := database.CreateRefreshTokenParams{
+		Token:     refreshToken,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(60 * 24 * time.Hour),
+	}
+
+	_, err = cfg.dbQueries.CreateRefreshToken(r.Context(), refreshTokenParams)
+
 	respBody := response{
 		User: User{
 			ID:        user.ID,
@@ -54,6 +76,8 @@ func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 			UpdatedAt: user.UpdatedAt,
 			Email:     user.Email,
 		},
+		Token:        token,
+		RefreshToken: refreshToken,
 	}
 
 	resp, err := json.Marshal(respBody)
